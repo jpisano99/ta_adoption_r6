@@ -135,9 +135,11 @@ def main():
 
         # Grab this SO number in a simple dict {so:(cust_id, cust_id)
         if cust_so not in so_dict:
-            so_dict[cust_so] = ((cust_id, cust_erp_name),)
+            # so_dict[cust_so] = ((cust_id, cust_erp_name),)
+            so_dict[cust_so] = ((cust_id, cust_erp_name, cust_sku),)
         else:
-            so_dict[cust_so] = so_dict[cust_so] + ((cust_id, cust_erp_name),)
+            # so_dict[cust_so] = so_dict[cust_so] + ((cust_id, cust_erp_name),)
+            so_dict[cust_so] = so_dict[cust_so] + ((cust_id, cust_erp_name, cust_sku),)
 
         # Do we have a missing or bad cust_id try to look one up
         if cust_id == '' or cust_id == '-999':
@@ -221,7 +223,6 @@ def main():
     #             print('\t', 'SO Num:', my_order, 'SKUs', my_skus)
     #             time.sleep(1)
 
-
     #
     # Process AS AS-F SKU File - match bookings SO and (AS SO / PID) numbers
     # and make a list of tuples for each cust_id
@@ -238,8 +239,7 @@ def main():
         # Gather the fields we want
         as_pid = as_ws.cell_value(row_num, 0)
         as_cust_name = as_ws.cell_value(row_num, 2)
-        # as_so = as_ws.cell_value(row_num, 19)
-        as_so = as_ws.cell_value(row_num, 16)
+        as_so = as_ws.cell_value(row_num, 19)
 
         # Just a check
         if as_so in as_db:
@@ -279,18 +279,34 @@ def main():
     print()
     print('AS SO Duplicate:', as_so_duplicate_cntr)
     print('AS SO Unique:', as_so_unique_cntr)
+    print('len of as_db',len(as_db))
 
     #
     # Update the cust_db objects with the AS data from as_db
     #
-    found_list = []
-    for cust_id, cust_obj in cust_db.items():
-        for so, skus in cust_obj.orders.items():
-            if so in as_db:
-                found_list.append(so)
-                cust_obj.add_as_pid(so, as_db[so])
+    found_list = 0
+    for as_so, as_info in as_db.items():
+        # as_info is [so #:[(as_pid, as_cust_name),()]]
+        as_cust_name = as_info[0][1]
 
-    print('Updated cust_db with: ', len(found_list), ' AS SOs')
+        if as_so in so_dict:
+            cust_id = so_dict[as_so][0][0]
+            cust_obj = cust_db[cust_id]
+            found_list = found_list + 1
+            cust_obj.add_as_pid(as_so, as_info)
+        else:
+            # OK this AS_SO is NOT in the Main so_dict
+            # We need to attempt to match on as_cust_name in the customer alias dict
+            # We need to find the customer_id
+            if as_cust_name in cust_alias_db:
+                cust_id = cust_alias_db[as_cust_name]
+                cust_obj = cust_db[cust_id]
+                found_list = found_list + 1
+                cust_obj.add_as_pid(as_so, as_info)
+            else:
+                print('\tNOT FOUND Customer ID for: ', as_cust_name)
+
+    print('Updated cust_db with: ', found_list, ' AS SOs')
 
     #
     # Process Subscriptions and add to Customer Objects
@@ -320,7 +336,7 @@ def main():
     # Make the Magic List
     #
     magic_list = []
-    header_row = ['Customer ID', 'AS SO', 'AS PID', 'AS Customer Name', 'PSS', 'TSA', 'AM',
+    header_row = ['Customer ID', 'AS SO', 'AS PID', 'AS Customer Name', 'Sales Level 1', 'Sales Level 2', 'PSS', 'TSA', 'AM',
                   'Upcoming Renewal Info' + ' \n' + 'Sub ID - Start Date - Renewal Date - Days to Renew - Annual Rev',
                   ' Next Renewal Date', 'Days to Renew', 'Subscription Status', 'AS Delivery Mgr', 'AS Tracking Status',
                   'AS Tracking Sub Status', 'AS Tracking Comments']
@@ -336,11 +352,13 @@ def main():
         pss = cust_obj.pss
         tsa = cust_obj.tsa
         am = cust_obj.am
+        sales_lev1 = cust_obj.sales_lev_1
+        sales_lev2 = cust_obj.sales_lev_2
 
         if len(as_pids) == 0:
             # No AS PID info available
             sub_summary, next_renewal_date, days_to_renew, sub_renew_status = process_sub_info(cust_obj.subs)
-            magic_row = [cust_id, '', 'AS Info Unavailable', cust_aliases[0], pss, tsa, am,
+            magic_row = [cust_id, '', 'AS Info Unavailable', cust_aliases[0], sales_lev1, sales_lev2, pss, tsa, am,
                          sub_summary, next_renewal_date,
                          days_to_renew, sub_renew_status, '', '', '', '']
             magic_list.append(magic_row)
@@ -369,14 +387,19 @@ def main():
                             as_tracking_comments = as_ws.cell_value(row_num, 9)
                             break
 
-                    magic_row = [cust_id, so, as_pid, as_cust_name, pss, tsa, am,
+                    magic_row = [cust_id, so, as_pid, as_cust_name, sales_lev1, sales_lev2, pss, tsa, am,
                                  sub_summary, next_renewal_date,
                                  days_to_renew, sub_renew_status, as_dm, as_tracking_status, as_tracking_sub_status, as_tracking_comments]
 
                     magic_list.append(magic_row)
 
-    print(len(magic_list))
-    print(x)
+    # print(len(magic_list))
+    # print(x)
+    # for my_row in magic_list:
+    #     for my_col in my_row:
+    #         print (my_col, type(my_col))
+    #     time.sleep(.1)
+    # exit()
     push_list_to_xls(magic_list, 'magic.xlsx')
 
 
@@ -394,7 +417,7 @@ def main():
             pss = cust_db[cust_id].pss
             tsa = cust_db[cust_id].tsa
             am = cust_db[cust_id].am
-            if cust_ws.cell_value(row_num, 2) >= cust_as_of:
+            if int(cust_ws.cell_value(row_num, 2)) >= cust_as_of:
                 new_cust_list.append([booking_period, cust_id, cust_name, pss, tsa, am])
 
     push_list_to_xls(new_cust_list, 'tmp_New_Customer_list.xlsx')

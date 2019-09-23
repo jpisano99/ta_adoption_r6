@@ -1,6 +1,7 @@
 import os
 import json
 import time
+from datetime import datetime
 from my_app.settings import app_cfg
 from my_app.func_lib.push_xlrd_to_xls import push_xlrd_to_xls
 from my_app.func_lib.push_list_to_xls import push_list_to_xls
@@ -153,12 +154,88 @@ def pre_run_file_checks(run_dir=app_cfg['UPDATES_DIR']):
                 if my_ws.cell_value(row, 14) in sku_filter_dict:
                     as_status.append(my_ws.row_slice(row))
 
+    # For the Subscriptions sheet we need to convert
+    # col 6 & 8 to DATE from STR
+    # col 10 (monthly rev) to FLOAT from STR
+    #
+    subscriptions_scrubbed = []
+
+    for row_num, my_row in enumerate(subscriptions):
+        my_new_row = []
+
+        for col_num, my_cell in enumerate(my_row):
+            if row_num == 0:
+                # Is this the header row ?
+                my_new_row.append(my_cell.value)
+                continue
+            if col_num == 6 or col_num == 8:
+                tmp_val = datetime.strptime(my_cell.value, '%d %b %Y')
+            elif col_num == 10:
+                tmp_val = my_cell.value
+                try:
+                    tmp_val = float(tmp_val)
+                except ValueError:
+                    tmp_val = 0
+            else:
+                tmp_val = my_cell.value
+
+            my_new_row.append(tmp_val)
+        subscriptions_scrubbed.append(my_new_row)
+
+    # Now Scrub AS Delivery Info
+    as_status_scrubbed = []
+    for row_num, my_row in enumerate(as_status):
+        my_new_row = []
+        for col_num, my_cell in enumerate(my_row):
+            if row_num == 0:
+                # Is this the header row ?
+                my_new_row.append(my_cell.value)
+                continue
+            if col_num == 0:  # PID
+                tmp_val = str(int(my_cell.value))
+            elif col_num == 19:  # SO Number
+                tmp_val = str(int(my_cell.value))
+            # elif col_num == 26:  # SO Nu
+            #     print(my_cell.value, type(my_cell.value))
+            #     time.sleep(.1)
+            #     tmp_val = str(int(my_cell.value))
+            else:
+                tmp_val = my_cell.value
+
+            my_new_row.append(tmp_val)
+        as_status_scrubbed.append(my_new_row)
+
+    # Now Scrub Bookings Data
+    bookings_scrubbed = []
+    for row_num, my_row in enumerate(bookings):
+        my_new_row = []
+        for col_num, my_cell in enumerate(my_row):
+            if row_num == 0:
+                # Is this the header row ?
+                my_new_row.append(my_cell.value)
+                continue
+
+            if col_num == 0 or col_num == 2 or \
+                    col_num == 11:  # Fiscal Year / Fiscal Period / SO
+                tmp_val = str(int(my_cell.value))
+            elif col_num == 15: # Customer ID
+                try:
+                    tmp_val = str(int(my_cell.value))
+                except ValueError:
+                    tmp_val = '-999'
+            else:
+                tmp_val = my_cell.value
+
+            my_new_row.append(tmp_val)
+        bookings_scrubbed.append(my_new_row)
+
     #
     # Push the lists out to an Excel File
     #
-    push_xlrd_to_xls(bookings, app_cfg['XLS_BOOKINGS'], run_dir, 'ta_bookings')
-    push_xlrd_to_xls(subscriptions, app_cfg['XLS_SUBSCRIPTIONS'], run_dir, 'ta_subscriptions')
-    push_xlrd_to_xls(as_status, app_cfg['XLS_AS_DELIVERY_STATUS'], run_dir, 'ta_delivery')
+    push_list_to_xls(bookings_scrubbed, app_cfg['XLS_BOOKINGS'], run_dir, 'ta_bookings')
+    push_list_to_xls(subscriptions_scrubbed, app_cfg['XLS_SUBSCRIPTIONS'], run_dir, 'ta_subscriptions')
+    push_list_to_xls(as_status_scrubbed, app_cfg['XLS_AS_DELIVERY_STATUS'], run_dir, 'ta_delivery')
+    # push_xlrd_to_xls(as_status, app_cfg['XLS_AS_DELIVERY_STATUS'], run_dir, 'ta_delivery')
 
     print('We have ', len(bookings), 'bookings line items')
     print('We have ', len(as_status), 'AS-Fixed SKU line items')
