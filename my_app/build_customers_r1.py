@@ -292,7 +292,7 @@ def main():
         if as_so in so_dict:
             cust_id = so_dict[as_so][0][0]
             cust_obj = cust_db[cust_id]
-            found_list = found_list + 1
+            found_list = found_list + len(as_info)
             cust_obj.add_as_pid(as_so, as_info)
         else:
             # OK this AS_SO is NOT in the Main so_dict
@@ -301,7 +301,7 @@ def main():
             if as_cust_name in cust_alias_db:
                 cust_id = cust_alias_db[as_cust_name]
                 cust_obj = cust_db[cust_id]
-                found_list = found_list + 1
+                found_list = found_list + len(as_info)
                 cust_obj.add_as_pid(as_so, as_info)
             else:
                 print('\tNOT FOUND Customer ID for: ', as_cust_name)
