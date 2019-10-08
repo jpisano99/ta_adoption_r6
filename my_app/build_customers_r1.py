@@ -1,10 +1,12 @@
 from my_app.func_lib.open_wb import open_wb
 from my_app.func_lib.push_list_to_xls import push_list_to_xls
+from my_app.func_lib.get_list_from_ss import get_list_from_ss
 from my_app.func_lib.build_sku_dict import build_sku_dict
 from my_app.func_lib.build_coverage_dict import build_coverage_dict
 from my_app.settings import app_cfg
 from my_app.Customer import Customer
 from my_app.func_lib.find_team import find_team
+from fuzzywuzzy import fuzz
 import xlrd
 from datetime import datetime
 import time
@@ -16,7 +18,11 @@ def process_sub_info(subs_list):
     today = datetime.today()
     sub_summary = ''
     next_renewal_date = datetime(2050, 1, 1)
+    next_renewal_rev = 0
+    billing_start_date = datetime(2050, 1, 1)
+    current_status = 'NONE'
     sub_renew_status = ''
+    days_to_renew = ''
     sub_start_date = ''
     sub_renew_date = ''
     sorted_idx = []
@@ -31,11 +37,22 @@ def process_sub_info(subs_list):
         sub_renew_status = sub_info[4]
         sub_monthly_rev = sub_info[5]
 
-        days_to_renew = (sub_renew_date - today).days
-        if sub_renew_date < next_renewal_date:
+        if current_status == 'NONE':
+            current_status = sub_renew_status
+
+        # Grab the next renewal date (lowest date in list)
+        if sub_renew_date < next_renewal_date and sub_renew_status == 'ACTIVE':
             next_renewal_date = sub_renew_date
+            next_renewal_rev = sub_monthly_rev
+            days_to_renew = (next_renewal_date - today).days
+            current_status = sub_renew_status
+
+        # Find the the earliest date we ever billed this customer
+        if sub_start_date < billing_start_date:
+            billing_start_date = sub_start_date
 
         sub_summary = sub_id + ' - ' + \
+            sub_renew_status + ' - ' + \
             sub_start_date.strftime("%m/%d/%Y") + '\t - ' + \
             sub_renew_date.strftime("%m/%d/%Y") + ' - ' + \
             str(days_to_renew) + ' - ' + \
@@ -44,13 +61,18 @@ def process_sub_info(subs_list):
 
     sub_summary = sub_summary[:-1]
 
-    if next_renewal_date == next_renewal_date == datetime(2050, 1, 1):
+    # Blank these fields if there is no subs
+    if next_renewal_date == datetime(2050, 1, 1):
         next_renewal_date = ''
         days_to_renew = ''
-    else:
-        days_to_renew = (next_renewal_date - today).days
+    if billing_start_date == datetime(2050, 1, 1):
+        billing_start_date = ''
 
-    return sub_summary, next_renewal_date, days_to_renew, sub_renew_status
+    if len(subs_list) == 0:
+        sub_summary = "No Subscription Info Found"
+        current_status = ''
+
+    return sub_summary, billing_start_date, next_renewal_date, days_to_renew, next_renewal_rev, current_status
 
 
 def main():
@@ -205,6 +227,47 @@ def main():
 
     push_list_to_xls(id_list, 'log_Unique_Cust_IDs.xlsx')
 
+    #
+    # Get SAAS Data from the BU Sheet
+    #
+    # saas_rows = get_list_from_ss(app_cfg['SS_SAAS'])
+    # test_list = []
+    #
+    # for x in saas_rows:
+    #     for y in x:
+    #         print(type(y), y)
+    #     time.sleep(.4)
+    # exit()
+    #
+    # for row_num in range(1, len(saas_rows)):
+    #     try:
+    #         tmp_val = [saas_rows[row_num][1], str(int(saas_rows[row_num][2]))]
+    #     except ValueError:
+    #         tmp_val = ['Bad Data in row ' + str(row_num), saas_rows[row_num][1]]
+    #
+    #     test_list.append(tmp_val)
+    # push_list_to_xls(test_list, 'saas_status.xlsx')
+    #
+    # saas_status_list = [['status', 'cust name', 'saas so', 'cust id']]
+    # for row in test_list:
+    #     saas_name = row[0]
+    #     saas_so = row[1]
+    #     saas_status = ''
+    #     saas_cust_id = ''
+    #
+    #     if saas_name.find('Bad Data') != -1:
+    #         saas_status = 'Bad Data in SaaS Sheet', saas_name, saas_so, saas_cust_id
+    #     else:
+    #         if saas_name in cust_alias_db:
+    #             saas_cust_id = cust_alias_db[saas_name]
+    #             saas_status = 'Matched Data with SaaS Sheet', saas_name, saas_so, saas_cust_id
+    #         else:
+    #             saas_status = 'No Matching Data from SaaS Sheet', saas_name, saas_so, saas_cust_id
+    #
+    #     saas_status_list.append(saas_status)
+    # push_list_to_xls(saas_status_list, 'log_saas_data_matches.xlsx')
+
+
     # # Display Customer IDs and Aliases
     # for cust_id, cust_obj in cust_db.items():
     #     if len(cust_obj.aliases) > 1:
@@ -285,6 +348,7 @@ def main():
     # Update the cust_db objects with the AS data from as_db
     #
     found_list = 0
+    as_zombies = [['AS SO', 'AS PID', 'AS Customer Name', 'Possible Match', 'Ratio']]
     for as_so, as_info in as_db.items():
         # as_info is [so #:[(as_pid, as_cust_name),()]]
         as_cust_name = as_info[0][1]
@@ -304,8 +368,25 @@ def main():
                 found_list = found_list + len(as_info)
                 cust_obj.add_as_pid(as_so, as_info)
             else:
+                # do a fuzzy match search against all customer aliases
+                best_match = 0
+                for k, v in cust_alias_db.items():
+                    match_ratio = fuzz.ratio(as_cust_name, k)
+                    if match_ratio > best_match:
+                        possible_cust = k
+                        best_match = match_ratio
+
+                cust_id = cust_alias_db[possible_cust]
+                cust_obj = cust_db[cust_id]
+                found_list = found_list + len(as_info)
+                cust_obj.add_as_pid(as_so, as_info)
+
+                cust_obj.add_as_pid(as_so, as_info)
+
+                as_zombies.append([as_so, as_info[0][0], as_info[0][1], possible_cust, best_match])
                 print('\tNOT FOUND Customer ID for: ', as_cust_name)
 
+    push_list_to_xls(as_zombies, 'tmp_zombies.xlsx')
     print('Updated cust_db with: ', found_list, ' AS SOs')
 
     #
@@ -336,10 +417,14 @@ def main():
     # Make the Magic List
     #
     magic_list = []
-    header_row = ['Customer ID', 'AS SO', 'AS PID', 'AS Customer Name', 'Sales Level 1', 'Sales Level 2', 'PSS', 'TSA', 'AM',
-                  'Upcoming Renewal Info' + ' \n' + 'Sub ID - Start Date - Renewal Date - Days to Renew - Annual Rev',
-                  ' Next Renewal Date', 'Days to Renew', 'Subscription Status', 'AS Delivery Mgr', 'AS Tracking Status',
-                  'AS Tracking Sub Status', 'AS Tracking Comments']
+    header_row = ['Customer ID', 'AS SO', 'AS PID', 'AS Customer Name', 'Sales Level 1', 'Sales Level 2', 'PSS', 'TSA',
+                  'AM', 'Subscription History' + ' \n' +
+                  'Sub ID - Start Date - Renewal Date - Days to Renew - Annual Rev',
+                  'Sub 1st Billing Date', 'Next Renewal Date',
+                  'Days to Renew', 'Next Renewal Monthly Rev', 'Sub Current Status', 'AS Delivery Mgr', 'AS Tracking Status',
+                  'AS Tracking Sub Status', 'AS Tracking Comments', 'AS SKU',
+                  'AS Project Creation Date', 'AS Project Start Date', 'AS Scheduled End Date',
+                  'Days from 1st Sub Billing to AS Project Start']
     magic_list.append(header_row)
     print (magic_list)
     x = 0
@@ -357,10 +442,10 @@ def main():
 
         if len(as_pids) == 0:
             # No AS PID info available
-            sub_summary, next_renewal_date, days_to_renew, sub_renew_status = process_sub_info(cust_obj.subs)
+            sub_summary, billing_start_date, next_renewal_date, days_to_renew, renewal_rev, sub_renew_status = process_sub_info(cust_obj.subs)
             magic_row = [cust_id, '', 'AS Info Unavailable', cust_aliases[0], sales_lev1, sales_lev2, pss, tsa, am,
-                         sub_summary, next_renewal_date,
-                         days_to_renew, sub_renew_status, '', '', '', '']
+                         sub_summary, billing_start_date, next_renewal_date,
+                         days_to_renew, renewal_rev, sub_renew_status, '', '', '', '', '', '', '', '', '']
             magic_list.append(magic_row)
         else:
             # Let's look at the AS PIDs in cust_obj
@@ -372,24 +457,49 @@ def main():
                     as_pid = as_detail[0]
                     as_cust_name = as_detail[1]
 
-                    sub_summary, next_renewal_date, days_to_renew, sub_renew_status = process_sub_info(cust_obj.subs)
+                    sub_summary, billing_start_date, next_renewal_date, days_to_renew, renewal_rev, sub_renew_status = process_sub_info(cust_obj.subs)
 
                     # Go get additional AS Info
                     as_tracking_status = ''
                     as_tracking_sub_status = ''
                     as_tracking_comments = ''
                     as_dm = ''
+                    as_project_start = ''
+                    as_scheduled_end = ''
+                    as_project_created = ''
+                    as_sku = ''
+
                     for row_num in range(1, as_ws.nrows):
                         if as_pid == as_ws.cell_value(row_num, 0):
                             as_dm = as_ws.cell_value(row_num, 1)
                             as_tracking_status = as_ws.cell_value(row_num, 7)
                             as_tracking_sub_status = as_ws.cell_value(row_num, 8)
                             as_tracking_comments = as_ws.cell_value(row_num, 9)
+                            as_sku = as_ws.cell_value(row_num, 14)
+                            as_project_start = as_ws.cell_value(row_num, 26)
+                            as_scheduled_end = as_ws.cell_value(row_num, 27)
+                            as_project_created = as_ws.cell_value(row_num, 28)
+
+                            year, month, day, hour, minute, second = xlrd.xldate_as_tuple(as_project_start, as_wb.datemode)
+                            as_project_start = datetime(year, month, day)
+
+                            year, month, day, hour, minute, second = xlrd.xldate_as_tuple(as_scheduled_end, as_wb.datemode)
+                            as_scheduled_end = datetime(year, month, day)
+
+                            year, month, day, hour, minute, second = xlrd.xldate_as_tuple(as_project_created, as_wb.datemode)
+                            as_project_created = datetime(year, month, day)
                             break
 
+                    if isinstance(billing_start_date, datetime) and isinstance(as_project_start, datetime):
+                        time_to_service = billing_start_date - as_project_start
+                    else:
+                        time_to_service = ''
+
                     magic_row = [cust_id, so, as_pid, as_cust_name, sales_lev1, sales_lev2, pss, tsa, am,
-                                 sub_summary, next_renewal_date,
-                                 days_to_renew, sub_renew_status, as_dm, as_tracking_status, as_tracking_sub_status, as_tracking_comments]
+                                 sub_summary, billing_start_date, next_renewal_date,
+                                 days_to_renew, renewal_rev, sub_renew_status, as_dm, as_tracking_status,
+                                 as_tracking_sub_status, as_tracking_comments, as_sku,
+                                 as_project_created, as_project_start, as_scheduled_end, time_to_service]
 
                     magic_list.append(magic_row)
 

@@ -15,6 +15,7 @@ class Customer:
         self.orders = {}  # Simple dict of {SO #: [sku1, sku2]}
         self.as_pids = {}  # Simple dict of {SO #: [(pid1, as_customer_name)]}
         self.subs = []  # Simple list of lists of subscriptions[]
+        self.saas = {}
 
     def add_order(self, order_num, sku):
         if order_num in self.orders:

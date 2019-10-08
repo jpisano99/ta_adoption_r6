@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import xlrd
 from datetime import datetime
 from my_app.settings import app_cfg
 from my_app.func_lib.push_xlrd_to_xls import push_xlrd_to_xls
@@ -170,6 +171,7 @@ def pre_run_file_checks(run_dir=app_cfg['UPDATES_DIR']):
                 continue
             if col_num == 6 or col_num == 8:
                 tmp_val = datetime.strptime(my_cell.value, '%d %b %Y')
+                # tmp_val = datetime.strptime(my_cell.value, '%m/%d/%Y')
             elif col_num == 10:
                 tmp_val = my_cell.value
                 try:
@@ -195,10 +197,12 @@ def pre_run_file_checks(run_dir=app_cfg['UPDATES_DIR']):
                 tmp_val = str(int(my_cell.value))
             elif col_num == 19:  # SO Number
                 tmp_val = str(int(my_cell.value))
-            # elif col_num == 26:  # SO Nu
-            #     print(my_cell.value, type(my_cell.value))
-            #     time.sleep(.1)
-            #     tmp_val = str(int(my_cell.value))
+            elif col_num == 26:  # Project Start Date
+                tmp_val = datetime(*xlrd.xldate_as_tuple(my_cell.value, my_wb.datemode))
+            elif col_num == 27:  # Scheduled End Date
+                tmp_val = datetime(*xlrd.xldate_as_tuple(my_cell.value, my_wb.datemode))
+            elif col_num == 28:  # Project Creation Date
+                tmp_val = datetime(*xlrd.xldate_as_tuple(my_cell.value, my_wb.datemode))
             else:
                 tmp_val = my_cell.value
 
