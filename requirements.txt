@@ -12,6 +12,6 @@ requests-toolbelt==0.9.1
 six==1.12.0
 smartsheet-python-sdk==1.5.0
 urllib3==1.24.1
-Werkzeug==0.15.2
+Werkzeug==0.15.3
 xlrd==1.2.0
 XlsxWriter==1.1.6
